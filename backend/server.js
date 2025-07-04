@@ -314,7 +314,8 @@ io.on("connection", (socket) => {
   })
 })
 
-const PORT = process.env.PORT || 5000
+// Use environment variable or default to 5001 if 5000 is busy
+const PORT = process.env.PORT || 5001
 server.listen(PORT, () => {
   console.log(`🏏 Cricket Team Selection Server running on port ${PORT}`)
 })

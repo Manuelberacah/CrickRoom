@@ -1,5 +1,7 @@
 # 🏏 CrickRoom - Step Into the Selection Zone
 
+CrickRoom lets you create and join rooms, take turns selecting cricket players in real-time, and build your dream team with friends. 🎮⚡
+
 A real-time multiplayer cricket team selection application built with React, Node.js, Express, and Socket.IO.
 
 ## ✨ Features

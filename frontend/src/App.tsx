@@ -18,11 +18,11 @@ import {
   Star,
   ChevronRight,
   Sparkles,
-} 
-from "lucide-react"
+} from "lucide-react"
 import "./App.css"
 
-const SOCKET_URL = "http://localhost:5000"
+// Updated to use port 5001 if 5000 is busy
+const SOCKET_URL = "http://localhost:5001"
 
 interface User {
   id: string
@@ -78,12 +78,12 @@ const LandingPage: React.FC<{ onEnter: () => void }> = ({ onEnter }) => {
               key={i}
               className="particle"
               initial={{
-                x: Math.random() * window.innerWidth,
-                y: Math.random() * window.innerHeight,
+                x: Math.random() * (typeof window !== "undefined" ? window.innerWidth : 1000),
+                y: Math.random() * (typeof window !== "undefined" ? window.innerHeight : 1000),
                 opacity: 0,
               }}
               animate={{
-                y: [null, Math.random() * window.innerHeight],
+                y: [null, Math.random() * (typeof window !== "undefined" ? window.innerHeight : 1000)],
                 opacity: [0, 0.6, 0],
               }}
               transition={{

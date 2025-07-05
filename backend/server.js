@@ -16,7 +16,7 @@ const io = socketIo(server, {
 app.use(cors())
 app.use(express.json())
 
-// In-memory storage
+// In-memory storage - using lowercase hostName as key for case-insensitive matching
 const rooms = new Map()
 const users = new Map()
 
@@ -45,10 +45,15 @@ const cricketPlayers = [
 ]
 
 // Helper functions
+function getRoomKey(hostName) {
+  return hostName.toLowerCase().trim()
+}
+
 function createRoom(hostId, hostName) {
-  const roomId = uuidv4().substring(0, 8)
+  const roomKey = getRoomKey(hostName)
   const room = {
-    id: roomId,
+    hostName: hostName, // Keep original case for display
+    roomKey: roomKey, // Lowercase for matching
     host: hostId,
     users: [{ id: hostId, name: hostName, selectedPlayers: [] }],
     availablePlayers: [...cricketPlayers],
@@ -59,8 +64,17 @@ function createRoom(hostId, hostName) {
     selectionRound: 1,
     maxRounds: 5,
   }
-  rooms.set(roomId, room)
+  rooms.set(roomKey, room)
+  console.log(`Room created: ${hostName} (key: ${roomKey})`)
+  console.log(`Total rooms: ${rooms.size}`)
   return room
+}
+
+function getRoom(hostName) {
+  const roomKey = getRoomKey(hostName)
+  console.log(`Looking for room: ${hostName} (key: ${roomKey})`)
+  console.log(`Available rooms:`, Array.from(rooms.keys()))
+  return rooms.get(roomKey)
 }
 
 function shuffleArray(array) {
@@ -78,18 +92,18 @@ function getNextTurn(room) {
   return room.turnOrder[nextIndex]
 }
 
-function autoSelectPlayer(roomId, userId) {
-  const room = rooms.get(roomId)
+function autoSelectPlayer(hostName, userId) {
+  const room = getRoom(hostName)
   if (!room || room.currentTurn !== userId) return
 
   const availablePlayer = room.availablePlayers[0]
   if (availablePlayer) {
-    selectPlayerForUser(roomId, userId, availablePlayer.id, true)
+    selectPlayerForUser(hostName, userId, availablePlayer.id, true)
   }
 }
 
-function selectPlayerForUser(roomId, userId, playerId, isAutoSelected = false) {
-  const room = rooms.get(roomId)
+function selectPlayerForUser(hostName, userId, playerId, isAutoSelected = false) {
+  const room = getRoom(hostName)
   if (!room) return
 
   const user = room.users.find((u) => u.id === userId)
@@ -110,7 +124,7 @@ function selectPlayerForUser(roomId, userId, playerId, isAutoSelected = false) {
   }
 
   // Broadcast the selection
-  io.to(roomId).emit("player-selected", {
+  io.to(room.roomKey).emit("player-selected", {
     userId,
     userName: user.name,
     player,
@@ -123,7 +137,7 @@ function selectPlayerForUser(roomId, userId, playerId, isAutoSelected = false) {
 
   if (allUsersComplete) {
     room.isSelectionStarted = false
-    io.to(roomId).emit("selection-ended", {
+    io.to(room.roomKey).emit("selection-ended", {
       finalTeams: room.users.map((u) => ({
         userId: u.id,
         userName: u.name,
@@ -135,23 +149,23 @@ function selectPlayerForUser(roomId, userId, playerId, isAutoSelected = false) {
 
   // Move to next turn
   room.currentTurn = getNextTurn(room)
-  startTurnTimer(roomId)
+  startTurnTimer(hostName)
 
-  io.to(roomId).emit("turn-changed", {
+  io.to(room.roomKey).emit("turn-changed", {
     currentTurn: room.currentTurn,
     currentUserName: room.users.find((u) => u.id === room.currentTurn)?.name,
   })
 }
 
-function startTurnTimer(roomId) {
-  const room = rooms.get(roomId)
+function startTurnTimer(hostName) {
+  const room = getRoom(hostName)
   if (!room) return
 
   room.turnTimer = setTimeout(() => {
-    autoSelectPlayer(roomId, room.currentTurn)
+    autoSelectPlayer(hostName, room.currentTurn)
   }, 10000) // 10 seconds
 
-  io.to(roomId).emit("turn-timer-started", { duration: 10000 })
+  io.to(room.roomKey).emit("turn-timer-started", { duration: 10000 })
 }
 
 // REST API Endpoints
@@ -161,30 +175,38 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/rooms", (req, res) => {
   const { hostName } = req.body
-  if (!hostName) {
+  if (!hostName || !hostName.trim()) {
     return res.status(400).json({ error: "Host name is required" })
   }
 
+  const trimmedHostName = hostName.trim()
+  const roomKey = getRoomKey(trimmedHostName)
+
+  // Check if room already exists
+  if (rooms.has(roomKey)) {
+    return res.status(400).json({ error: "A room with this host name already exists" })
+  }
+
   const hostId = uuidv4()
-  const room = createRoom(hostId, hostName)
+  const room = createRoom(hostId, trimmedHostName)
 
   res.json({
-    roomId: room.id,
+    hostName: room.hostName,
     hostId,
     message: "Room created successfully",
   })
 })
 
-app.get("/api/rooms/:roomId", (req, res) => {
-  const { roomId } = req.params
-  const room = rooms.get(roomId)
+app.get("/api/rooms/:hostName", (req, res) => {
+  const { hostName } = req.params
+  const room = getRoom(hostName)
 
   if (!room) {
     return res.status(404).json({ error: "Room not found" })
   }
 
   res.json({
-    roomId: room.id,
+    hostName: room.hostName,
     users: room.users.map((u) => ({ id: u.id, name: u.name })),
     isSelectionStarted: room.isSelectionStarted,
     availablePlayersCount: room.availablePlayers.length,
@@ -195,11 +217,14 @@ app.get("/api/rooms/:roomId", (req, res) => {
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id)
 
-  socket.on("join-room", ({ roomId, userName, userId }) => {
-    const room = rooms.get(roomId)
+  socket.on("join-room", ({ hostName, userName, userId }) => {
+    console.log(`Join room request: hostName=${hostName}, userName=${userName}, userId=${userId}`)
+
+    const room = getRoom(hostName)
 
     if (!room) {
-      socket.emit("error", { message: "Room not found" })
+      console.log(`Room not found for hostName: ${hostName}`)
+      socket.emit("error", { message: `Room not found. Make sure the host name "${hostName}" is correct.` })
       return
     }
 
@@ -212,29 +237,32 @@ io.on("connection", (socket) => {
     const existingUser = room.users.find((u) => u.id === userId)
     if (!existingUser) {
       room.users.push({ id: userId, name: userName, selectedPlayers: [] })
+      console.log(`User ${userName} added to room ${room.hostName}`)
     }
 
-    socket.join(roomId)
-    users.set(socket.id, { userId, roomId })
+    socket.join(room.roomKey)
+    users.set(socket.id, { userId, roomKey: room.roomKey })
 
     // Send room state to the joining user
     socket.emit("room-joined", {
-      roomId,
+      hostName: room.hostName,
       users: room.users.map((u) => ({ id: u.id, name: u.name })),
       isHost: room.host === userId,
       availablePlayers: room.availablePlayers,
     })
 
     // Notify others about new user
-    socket.to(roomId).emit("user-joined", {
+    socket.to(room.roomKey).emit("user-joined", {
       userId,
       userName,
       users: room.users.map((u) => ({ id: u.id, name: u.name })),
     })
+
+    console.log(`User ${userName} joined room ${room.hostName}. Total users: ${room.users.length}`)
   })
 
-  socket.on("start-selection", ({ roomId, userId }) => {
-    const room = rooms.get(roomId)
+  socket.on("start-selection", ({ hostName, userId }) => {
+    const room = getRoom(hostName)
 
     if (!room || room.host !== userId) {
       socket.emit("error", { message: "Only host can start selection" })
@@ -251,8 +279,13 @@ io.on("connection", (socket) => {
     room.currentTurn = room.turnOrder[0]
     room.isSelectionStarted = true
 
+    console.log(
+      `Selection started in room ${room.hostName}. Turn order:`,
+      room.turnOrder.map((id) => room.users.find((u) => u.id === id)?.name),
+    )
+
     // Notify all users
-    io.to(roomId).emit("selection-started", {
+    io.to(room.roomKey).emit("selection-started", {
       turnOrder: room.turnOrder.map((userId) => ({
         userId,
         userName: room.users.find((u) => u.id === userId)?.name,
@@ -263,11 +296,11 @@ io.on("connection", (socket) => {
     })
 
     // Start the first turn timer
-    startTurnTimer(roomId)
+    startTurnTimer(hostName)
   })
 
-  socket.on("select-player", ({ roomId, userId, playerId }) => {
-    const room = rooms.get(roomId)
+  socket.on("select-player", ({ hostName, userId, playerId }) => {
+    const room = getRoom(hostName)
 
     if (!room || !room.isSelectionStarted) {
       socket.emit("error", { message: "Selection not in progress" })
@@ -279,7 +312,7 @@ io.on("connection", (socket) => {
       return
     }
 
-    selectPlayerForUser(roomId, userId, playerId)
+    selectPlayerForUser(hostName, userId, playerId)
   })
 
   socket.on("disconnect", () => {
@@ -287,22 +320,26 @@ io.on("connection", (socket) => {
     const userData = users.get(socket.id)
 
     if (userData) {
-      const { userId, roomId } = userData
-      const room = rooms.get(roomId)
+      const { userId, roomKey } = userData
+      const room = rooms.get(roomKey)
 
       if (room) {
         // Remove user from room
+        const userToRemove = room.users.find((u) => u.id === userId)
         room.users = room.users.filter((u) => u.id !== userId)
+
+        console.log(`User ${userToRemove?.name} left room ${room.hostName}. Remaining users: ${room.users.length}`)
 
         // If room is empty, delete it
         if (room.users.length === 0) {
           if (room.turnTimer) {
             clearTimeout(room.turnTimer)
           }
-          rooms.delete(roomId)
+          rooms.delete(roomKey)
+          console.log(`Room ${room.hostName} deleted (empty)`)
         } else {
           // Notify remaining users
-          socket.to(roomId).emit("user-left", {
+          socket.to(roomKey).emit("user-left", {
             userId,
             users: room.users.map((u) => ({ id: u.id, name: u.name })),
           })
@@ -318,4 +355,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 5001
 server.listen(PORT, () => {
   console.log(`🏏 Cricket Team Selection Server running on port ${PORT}`)
+  console.log(`Available at: http://localhost:${PORT}`)
 })

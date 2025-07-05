@@ -4,24 +4,9 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import io, { type Socket } from "socket.io-client"
-import {
-  Users,
-  Clock,
-  Trophy,
-  Play,
-  Copy,
-  Check,
-  UserPlus,
-  Crown,
-  Timer,
-  Zap,
-  Star,
-  ChevronRight,
-  Sparkles,
-} from "lucide-react"
+import { Users, Clock, Trophy, Play, UserPlus, Crown, Timer, Zap, Star, ChevronRight, Sparkles } from "lucide-react"
 import "./App.css"
 
-// Updated to use port 5001 if 5000 is busy
 const SOCKET_URL = "http://localhost:5001"
 
 interface User {
@@ -178,8 +163,12 @@ const App: React.FC = () => {
   const [showLanding, setShowLanding] = useState(true)
   const [socket, setSocket] = useState<Socket | null>(null)
   const [currentView, setCurrentView] = useState<"home" | "room" | "game">("home")
-  const [userName, setUserName] = useState("")
-  const [roomId, setRoomId] = useState("")
+
+  // Simplified state - just usernames
+  const [createUserName, setCreateUserName] = useState("")
+  const [joinUserName, setJoinUserName] = useState("")
+  const [joinHostName, setJoinHostName] = useState("")
+
   const [userId, setUserId] = useState("")
   const [room, setRoom] = useState<Room | null>(null)
   const [isSelectionStarted, setIsSelectionStarted] = useState(false)
@@ -193,7 +182,6 @@ const App: React.FC = () => {
   const [notification, setNotification] = useState<string>("")
   const [finalTeams, setFinalTeams] = useState<any[]>([])
   const [isGameEnded, setIsGameEnded] = useState(false)
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!showLanding) {
@@ -214,7 +202,7 @@ const App: React.FC = () => {
       setRoom(data)
       setAvailablePlayers(data.availablePlayers)
       setCurrentView("room")
-      showNotification(`Joined room successfully!`)
+      showNotification(`Joined ${data.hostName}'s room successfully!`)
     })
 
     socket.on("user-joined", (data) => {
@@ -301,7 +289,7 @@ const App: React.FC = () => {
   }
 
   const createRoom = async () => {
-    if (!userName.trim()) {
+    if (!createUserName.trim()) {
       showNotification("Please enter your name", "error")
       return
     }
@@ -310,16 +298,15 @@ const App: React.FC = () => {
       const response = await fetch(`${SOCKET_URL}/api/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostName: userName }),
+        body: JSON.stringify({ hostName: createUserName }),
       })
 
       const data = await response.json()
-      setRoomId(data.roomId)
       setUserId(data.hostId)
 
       socket?.emit("join-room", {
-        roomId: data.roomId,
-        userName,
+        hostName: createUserName,
+        userName: createUserName,
         userId: data.hostId,
       })
     } catch (error) {
@@ -328,31 +315,25 @@ const App: React.FC = () => {
   }
 
   const joinRoom = () => {
-    if (!userName.trim() || !roomId.trim()) {
-      showNotification("Please enter your name and room ID", "error")
+    if (!joinUserName.trim() || !joinHostName.trim()) {
+      showNotification("Please enter your name and host's name", "error")
       return
     }
 
     socket?.emit("join-room", {
-      roomId: roomId.trim(),
-      userName,
+      hostName: joinHostName.trim(),
+      userName: joinUserName,
       userId,
     })
   }
 
   const startSelection = () => {
-    socket?.emit("start-selection", { roomId: room?.id, userId })
+    socket?.emit("start-selection", { hostName: room?.hostName, userId })
   }
 
   const selectPlayer = (playerId: number) => {
     if (!isMyTurn) return
-    socket?.emit("select-player", { roomId: room?.id, userId, playerId })
-  }
-
-  const copyRoomId = () => {
-    navigator.clipboard.writeText(room?.id || "")
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    socket?.emit("select-player", { hostName: room?.hostName, userId, playerId })
   }
 
   const resetGame = () => {
@@ -362,7 +343,9 @@ const App: React.FC = () => {
     setSelectedPlayers([])
     setFinalTeams([])
     setIsGameEnded(false)
-    setRoomId("")
+    setCreateUserName("")
+    setJoinUserName("")
+    setJoinHostName("")
   }
 
   if (showLanding) {
@@ -378,7 +361,7 @@ const App: React.FC = () => {
       <AnimatePresence>
         {notification && (
           <motion.div
-            className={`notification ${notification.includes("error") ? "error" : "success"}`}
+            className={`notification ${notification.includes("error") || notification.includes("failed") ? "error" : "success"}`}
             initial={{ x: 300, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 300, opacity: 0 }}
@@ -397,10 +380,7 @@ const App: React.FC = () => {
           </div>
           {room && (
             <div className="room-info">
-              <span className="room-id">Room: {room.id}</span>
-              <button onClick={copyRoomId} className="copy-button">
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-              </button>
+              <span className="room-host">Host: {room.hostName}</span>
             </div>
           )}
         </div>
@@ -444,8 +424,8 @@ const App: React.FC = () => {
                     <input
                       type="text"
                       placeholder="Enter your name"
-                      value={userName}
-                      onChange={(e) => setUserName(e.target.value)}
+                      value={createUserName}
+                      onChange={(e) => setCreateUserName(e.target.value)}
                       className="name-input"
                     />
                     <motion.button
@@ -470,19 +450,19 @@ const App: React.FC = () => {
                       <UserPlus />
                     </div>
                     <h3>Join Room</h3>
-                    <p>Enter a room ID to join an existing selection</p>
+                    <p>Enter your name and the host's name to join</p>
                     <input
                       type="text"
                       placeholder="Enter your name"
-                      value={userName}
-                      onChange={(e) => setUserName(e.target.value)}
+                      value={joinUserName}
+                      onChange={(e) => setJoinUserName(e.target.value)}
                       className="name-input"
                     />
                     <input
                       type="text"
-                      placeholder="Enter room ID"
-                      value={roomId}
-                      onChange={(e) => setRoomId(e.target.value)}
+                      placeholder="Enter host's name"
+                      value={joinHostName}
+                      onChange={(e) => setJoinHostName(e.target.value)}
                       className="room-input"
                     />
                     <motion.button
@@ -516,10 +496,15 @@ const App: React.FC = () => {
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: 0.2 }}
                 >
-                  <h2>Selection Room</h2>
+                  <h2>{room.hostName}'s Selection Room</h2>
                   <div className="room-status">
                     <Users size={20} />
                     <span>{room.users.length} players joined</span>
+                  </div>
+                  <div className="join-instruction">
+                    <p>
+                      Tell your friends to join using your name: <strong>{room.hostName}</strong>
+                    </p>
                   </div>
                 </motion.div>
 

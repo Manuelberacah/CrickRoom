@@ -469,6 +469,60 @@ body {
   justify-content: center;
   gap: 0.5rem;
   opacity: 0.8;
+  margin-bottom: 1.5rem;
+}
+
+/* Room ID Display */
+.room-id-display {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.room-id-display span {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.room-id-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid #ffd700;
+  border-radius: 15px;
+  padding: 1rem;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.room-id-text {
+  font-family: "Monaco", monospace;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #ffd700;
+  letter-spacing: 2px;
+}
+
+.copy-id-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ffd700;
+  color: #1e3c72;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.copy-id-button:hover {
+  background: #ffed4e;
+  transform: scale(1.05);
 }
 
 .users-grid {
@@ -875,6 +929,11 @@ body {
   .enter-button {
     padding: 1rem 2rem;
     font-size: 1rem;
+  }
+
+  .room-id-box {
+    flex-direction: column;
+    gap: 0.5rem;
   }
 }
 
